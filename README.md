@@ -9,7 +9,7 @@ own.
 - `server.js` — an Express app that handles the Spotify OAuth
   ("Authorization Code") flow (`/login`, `/callback`, `/refresh_token`) and
   serves the static frontend.
-- `public/client.js` — browser-side code (bundled with `browserify` into
+- `public/client.js` — browser-side code (bundled with `esbuild` into
   `public/bundle.js`) that talks to the Spotify Web API via
   `spotify-web-api-js`, throttled with `promise-throttle`.
 - `public/index.html` / `css/main.css` — the UI.

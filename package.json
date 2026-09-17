@@ -4,7 +4,6 @@
   "description": "The Spotify Playlist Scraper Project",
   "main": "server.js",
   "dependencies": {
-    "browserify": "^16.5.1",
     "cookie-parser": "^1.4.5",
     "cors": "^2.8.5",
     "dotenv": "^8.2.0",
@@ -12,10 +11,12 @@
     "promise-throttle": "^1.1.0",
     "spotify-web-api-js": "^1.4.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "browserify ./public/client.js>./public/bundle.js"
+    "build": "esbuild public/client.js --bundle --outfile=public/bundle.js"
   },
   "repository": {
     "type": "git",
