@@ -1,16 +1,3 @@
 {
-  "version": 2,
-  "buildCommand": "npm run build",
-  "builds": [
-    {
-      "src": "server.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["public/**", "css/**"]
-      }
-    }
-  ],
-  "routes": [
-    { "src": "/(.*)", "dest": "server.js" }
-  ]
+  "buildCommand": "npm run build"
 }
