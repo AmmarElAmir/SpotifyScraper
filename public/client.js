@@ -212,7 +212,10 @@ async function requestUserPlaylists(count = 0, owned = 0) {
 		));
 	page.err ? console.log("FAIL " + page.err) : "";
 	// console.log(page.items);
-	playlists = page.items;
+	// Spotify returns null for playlists that are no longer accessible (e.g.
+	// deleted or made private by their owner) while still counting them
+	// toward total/offset, so drop those before returning the page.
+	playlists = page.items.filter(p => p);
 
 	let next = page.next;
 	count += page.items.length;
