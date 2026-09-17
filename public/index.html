@@ -8,6 +8,9 @@
 	<meta name="description" content="" />
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<!-- <link rel="manifest" href="site.webmanifest"> -->
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Fustat:wght@400;500;700&display=swap" rel="stylesheet" />
 	<link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css" />
 	<link rel="stylesheet" href="/main.css" />
 </head>
@@ -20,19 +23,19 @@
 				your experience and security.
 		</p>
 		<![endif]-->
-	<div id="header" class="w3-row w3-padding header">
-		<div class="w3-half w3-padding">
-			<img src="./SpotiFind Logo.png" alt="SpotiFindLogo.png">
+	<div id="header" class="header">
+		<div class="header-row">
+			<img src="./SpotiFind Logo.png" alt="SpotiFindLogo.png" class="logo">
 			<p class="intro">
 				Search for a Playlist in your library. Or find a track in your playlists.<br>
 				You can filter playlists to view only the ones you own.
 			</p>
 		</div>
-		<div class="w3-half w3-padding">
+		<div class="controls-row">
 			<input type="search" id="filterInput" name="q-playlists" class="searchInput"
 				placeholder="Search for Playlist" aria-label="Search for Playlist." />
 			<input type="search" id="searchInput" name="q-tracks" class="searchInput" placeholder="Track Name" />
-			<div class="w3-row w3-right">
+			<div class="button-group">
 				<a href="#" class="w3-button gbutton" id="filterPlaylists">Filter
 					Playlists</a>
 				<a href="#" class="w3-button gbutton-secondary" id="clear">Clear Filter</a>
@@ -40,9 +43,9 @@
 					Remove xTracks
 				</a>
 				<a href="#" class="w3-button gbutton" id="searchTracks">Search For Track</a>
-				<div class="w3-row ">
+				<div class="toggle-container">
 					<!-- Rounded switch -->
-					<p style="display: inline; text-align: right;">My Playlists Only</p>
+					<p style="margin: 0;">My Playlists Only</p>
 					<label class="switch">
 						<input id="toggleShow" type="checkbox" checked />
 						<span class="slider round"></span>
@@ -54,7 +57,7 @@
 	</div>
 	<div id="loader" class="w3-row w3-padding w3-twothird w3-center center">
 		<h1>SpotiFind</h1>
-		<a href="/login.html" class="w3-button w3-full w3-round-large" id="login">Login</a>
+		<a href="/login.html" class="w3-button gbutton gbutton-hero" id="login">Login</a>
 		<p class="intro">
 			Spotifind lets you search for tracks within your spotify playlists. <br>
 			Please login to load your playlists.
