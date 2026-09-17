@@ -378,12 +378,13 @@ async function search() {
 	updateDisplay("tracksList", "")
 	console.log("starting search for: " + query);
 
-	let USER_PLAYLISTS = await getPlaylists(0)
-	// Search for playlists
-	// filterPlaylists(query, playlists);
+	// Search every playlist the user can see (owned and followed), not
+	// just the ones they own, so a track turns up regardless of whether
+	// they're just following the playlist it lives in.
+	let playlists = await getPlaylists(0)
 
 	// Search for tracks
-	incrementalSearch(query, USER_PLAYLISTS);
+	incrementalSearch(query, playlists);
 }
 
 async function filterPlaylists(query, playlists) {
@@ -563,7 +564,10 @@ function displayAppend(tracks) {
 		div = document.createElement("li")
 		div.className = "trackItem";
 
-		text = `<strong class="trackName">${t.name}</strong><p class="artistName">${t.artists[0].name}</p><a href="#" class="inPlaylist">${t.playlist.name}</a>`;
+		let owned = t.playlist.owner && userId && t.playlist.owner.id === userId;
+		let ownerLabel = owned ? "" :
+			` <span class="ownerLabel">· followed, by ${t.playlist.owner.display_name || t.playlist.owner.id}</span>`;
+		text = `<strong class="trackName">${t.name}</strong><p class="artistName">${t.artists[0].name}</p><a href="#" class="inPlaylist">${t.playlist.name}${ownerLabel}</a>`;
 		div.id = t.id;
 		div.data = t;
 		div.dataset.playlistId = t.playlist.id;

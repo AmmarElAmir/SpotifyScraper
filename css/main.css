@@ -163,6 +163,11 @@ h2 {
 	transform: translateY(-177%);
 }
 
+.ownerLabel {
+	color: rgb(90, 90, 90);
+	font-style: italic;
+}
+
 .lister {
 	background: #181818;
 	border-radius: 15px;
