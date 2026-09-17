@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html class="no-js" lang="">
+
+<head>
+	<meta charset="utf-8" />
+	<meta http-equiv="x-ua-compatible" content="ie=edge" />
+	<title>SpotiFind - Login</title>
+	<meta name="description" content="Log in with Spotify to search your playlists." />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css" />
+	<link rel="stylesheet" href="/main.css" />
+</head>
+
+<body>
+	<div id="loginScreen" class="w3-row w3-padding w3-twothird w3-center center">
+		<img src="./SpotiFind Logo.png" alt="SpotiFind logo" style="max-width: 240px;">
+		<h1>SpotiFind</h1>
+		<p class="intro">
+			Search for tracks across your Spotify playlists, filter your
+			playlists by name, or narrow the list down to playlists you own.
+			<br>
+			Log in with Spotify to get started.
+		</p>
+		<p id="errorMessage" class="intro" style="color: #ff6b6b; display: none;"></p>
+		<a href="/login" class="w3-button w3-round-large gbutton" id="loginButton">
+			Log in with Spotify
+		</a>
+	</div>
+
+	<script>
+		function getCookie(cname) {
+			var name = cname + "=";
+			var decodedCookie = decodeURIComponent(document.cookie);
+			var ca = decodedCookie.split(';');
+			for (var i = 0; i < ca.length; i++) {
+				var c = ca[i];
+				while (c.charAt(0) == ' ') {
+					c = c.substring(1);
+				}
+				if (c.indexOf(name) == 0) {
+					return c.substring(name.length, c.length);
+				}
+			}
+			return "";
+		}
+
+		// Already logged in? Skip straight to the app.
+		if (getCookie("accessToken")) {
+			window.location.href = "/";
+		}
+
+		var hashParams = {};
+		var re = /([^&;=]+)=?([^&;]*)/g;
+		var query = window.location.hash.substring(1);
+		var match = re.exec(query);
+		while (match) {
+			hashParams[match[1]] = decodeURIComponent(match[2]);
+			match = re.exec(query);
+		}
+
+		var errorMessages = {
+			state_mismatch: "Login request could not be verified. Please try again.",
+			invalid_token: "Spotify login failed. Please try again."
+		};
+
+		if (hashParams.error) {
+			var errorEl = document.getElementById("errorMessage");
+			errorEl.textContent = errorMessages[hashParams.error] || "Something went wrong logging in. Please try again.";
+			errorEl.style.display = "block";
+		}
+	</script>
+</body>
+
+</html>

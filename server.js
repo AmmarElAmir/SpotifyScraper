@@ -45,7 +45,12 @@ var stateKey = 'spotify_auth_state';
 
 app.get('/login', function(req, res) {
   var state = generateRandomString(16);
-  res.cookie(stateKey, state);
+  res.cookie(stateKey, state, {
+    httpOnly: true,
+    secure: req.secure,
+    sameSite: 'lax',
+    maxAge: 10 * 60 * 1000 // 10 minutes - just long enough to complete the Spotify redirect
+  });
 
   // your application requests authorization
   var scope = 'user-read-private user-read-email user-read-private playlist-read-private playlist-read-collaborative user-library-modify playlist-modify-public playlist-modify-private';
@@ -68,7 +73,7 @@ app.get('/callback', async function(req, res) {
   var storedState = req.cookies ? req.cookies[stateKey] : null;
 
   if (state === null || state !== storedState) {
-    res.redirect('/#' +
+    res.redirect('/login.html#' +
       querystring.stringify({
         error: 'state_mismatch'
       }));
@@ -94,7 +99,7 @@ app.get('/callback', async function(req, res) {
     const body = await tokenResponse.json();
 
     if (!tokenResponse.ok) {
-      res.redirect('/#' +
+      res.redirect('/login.html#' +
         querystring.stringify({
           error: 'invalid_token'
         }));
@@ -113,7 +118,7 @@ app.get('/callback', async function(req, res) {
       }));
   } catch (error) {
     console.error(error);
-    res.redirect('/#' +
+    res.redirect('/login.html#' +
       querystring.stringify({
         error: 'invalid_token'
       }));

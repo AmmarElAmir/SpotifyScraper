@@ -26,7 +26,8 @@ var CURR_TRACKS = []
 document.getElementById("searchTracks").addEventListener("click", search);
 document.getElementById("filterPlaylists").addEventListener("click", filterPlaylists);
 document.getElementById("toggleShow").addEventListener("change", toggleShow);
-document.getElementById("clear").addEventListener("click", clearCookies);
+document.getElementById("clear").addEventListener("click", clearFilter);
+document.getElementById("clearCookies").addEventListener("click", clearCookies);
 
 function addEnter(element, button) {
 	var e = document.getElementById(element)
@@ -85,8 +86,19 @@ function getCookie(cname) {
 	return "";
 }
 
+function clearFilter() {
+	document.getElementById("filterInput").value = "";
+	if (document.getElementById("toggleShow").checked) {
+		showMine();
+	} else {
+		showAll();
+	}
+}
+
 function clearCookies() {
-	setCookie("accessToken", params.access_token, -1);
+	setCookie("accessToken", "", -1);
+	setCookie("refreshToken", "", -1);
+	window.location.href = "/login.html";
 }
 
 console.log("loading in browser");
@@ -115,8 +127,7 @@ if (params.access_token) {
 } else {
 	// if no access token found request a login
 	console.log("Please log in.");
-	//TODO use the refresh token here
-	window.location.href = "/login";
+	window.location.href = "/login.html";
 }
 
 if (sp.getAccessToken()) {
@@ -143,7 +154,7 @@ async function load() {
 		})
 		.catch(err => {
 			console.log("Please log in.");
-			window.location.href = "http://localhost:8888";
+			window.location.href = "/login.html";
 		})
 }
 
