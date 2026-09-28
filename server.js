@@ -52,7 +52,7 @@ app.get('/login', function(req, res) {
   });
 
   // your application requests authorization
-  var scope = 'user-read-private user-read-email user-read-private playlist-read-private playlist-read-collaborative user-library-modify playlist-modify-public playlist-modify-private';
+  var scope = 'user-read-private user-read-email user-read-private playlist-read-private playlist-read-collaborative user-library-read user-library-modify playlist-modify-public playlist-modify-private';
   res.redirect('https://accounts.spotify.com/authorize?' +
     querystring.stringify({
       response_type: 'code',
