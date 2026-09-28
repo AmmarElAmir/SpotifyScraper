@@ -582,4 +582,4 @@ function move(label, count, total) {
 			}
 		}
 	}
-}
+}
