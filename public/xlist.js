@@ -44,8 +44,15 @@ function isLikedCandidate(track) {
  * userId:    the current user's Spotify id
  * schedule:  fn => Promise, used to rate-limit calls (e.g. promiseThrottle.add)
  * onProgress(label, done, total): optional progress callback
+ * onTrack(event): optional per-track status callback, so a UI can show each
+ *   xList track as it is loaded, searched and cleaned. Events:
+ *     { type: "tracks", tracks }            xList tracks loaded (one per page)
+ *     { type: "found", uri, place }         scan found the track in `place`
+ *     { type: "searched", uri }             scan finished looking for the track
+ *     { type: "removed", uri, place }       execute removed the track from `place`
+ *     { type: "removeFailed", uri, place, error }
  */
-function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = defaultSleep, onProgress = () => { }, maxRetries = 4, fetchImpl = (...args) => fetch(...args) }) {
+function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = defaultSleep, onProgress = () => { }, onTrack = () => { }, maxRetries = 4, fetchImpl = (...args) => fetch(...args) }) {
 
 	// spotify-web-api-js sends the ids as a bare JSON array body, which Spotify
 	// rejects with 400 "Missing required field: ids", so pass them as a query
@@ -92,15 +99,16 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 	}
 
 	// Returns the playlist's tracks as { uri, id, name, artist }, skipping
-	// unavailable entries (null track).
-	async function fetchPlaylistTracks(playlist) {
+	// unavailable entries (null track). onPage receives each page's tracks.
+	async function fetchPlaylistTracks(playlist, onPage = () => { }) {
 		let tracks = [];
 		for (let offset = 0; ; offset += TRACKS_PAGE) {
 			const page = await call(() => sp.getPlaylistTracks(playlist.id, { offset, limit: TRACKS_PAGE }));
+			const pageTracks = [];
 			page.items.forEach(item => {
 				const t = item && (item.track || item.item);
 				if (!t || !t.uri) return;
-				tracks.push({
+				pageTracks.push({
 					uri: t.uri,
 					id: t.id || null,
 					name: t.name || "",
@@ -108,6 +116,8 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 					album: (t.album && t.album.name) || "",
 				});
 			});
+			tracks = tracks.concat(pageTracks);
+			onPage(pageTracks);
 			if (!page.next || page.items.length === 0) break;
 		}
 		return tracks;
@@ -126,10 +136,10 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 			p.id !== xlist.id && (p.owner.id === userId || p.collaborative));
 	}
 
-	// Returns Set of uris (from `tracks`) that are in Liked Songs.
-	async function likedUris(tracks) {
+	// Checks which of `tracks` are in Liked Songs, calling onBatch(batch, flags)
+	// as each batch of answers comes back.
+	async function checkLiked(tracks, onBatch) {
 		const candidates = tracks.filter(isLikedCandidate);
-		const liked = new Set();
 		for (const batch of chunk(candidates, LIKED_BATCH)) {
 			let flags;
 			try {
@@ -140,14 +150,14 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 				}
 				throw err;
 			}
-			batch.forEach((t, i) => { if (flags[i]) liked.add(t.uri); });
+			onBatch(batch, flags);
 		}
-		return liked;
 	}
 
 	// Locates every xList track in the target playlists and Liked Songs.
-	// Returns a map uri -> [{ id, name }] of places it was found.
-	async function locate(xTracks, targets, label) {
+	// Returns a map uri -> [{ id, name }] of places it was found. `emit`
+	// receives found/searched events (only the scan passes one).
+	async function locate(xTracks, targets, label, emit = () => { }) {
 		const wanted = new Set(xTracks.map(t => t.uri));
 		const found = new Map(xTracks.map(t => [t.uri, []]));
 		let done = 0;
@@ -158,13 +168,22 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 			tracks.forEach(t => {
 				if (wanted.has(t.uri) && !seen.has(t.uri)) {
 					seen.add(t.uri);
-					found.get(t.uri).push({ id: p.id, name: p.name });
+					const place = { id: p.id, name: p.name };
+					found.get(t.uri).push(place);
+					emit({ type: "found", uri: t.uri, place });
 				}
 			});
 			onProgress(label, ++done, targets.length + 1);
 		}));
-		const liked = await likedUris(xTracks);
-		liked.forEach(uri => found.get(uri).push(LIKED_SONGS));
+		// Tracks that can't be in Liked Songs are done once playlists are.
+		xTracks.filter(t => !isLikedCandidate(t)).forEach(t => emit({ type: "searched", uri: t.uri }));
+		await checkLiked(xTracks, (batch, flags) => batch.forEach((t, i) => {
+			if (flags[i]) {
+				found.get(t.uri).push(LIKED_SONGS);
+				emit({ type: "found", uri: t.uri, place: LIKED_SONGS });
+			}
+			emit({ type: "searched", uri: t.uri });
+		}));
 		onProgress(label, ++done, targets.length + 1);
 		return found;
 	}
@@ -179,9 +198,13 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 	async function scan() {
 		const playlists = await fetchPlaylists();
 		const xlist = findXList(playlists);
-		const xTracks = dedupe(await fetchPlaylistTracks(xlist));
+		const seen = new Set();
+		const xTracks = dedupe(await fetchPlaylistTracks(xlist, page => {
+			const fresh = page.filter(t => !seen.has(t.uri) && seen.add(t.uri));
+			if (fresh.length) onTrack({ type: "tracks", tracks: fresh });
+		}));
 		const targets = editableTargets(playlists, xlist);
-		const found = await locate(xTracks, targets, "playlists scanned");
+		const found = await locate(xTracks, targets, "playlists scanned", onTrack);
 		return {
 			createdAt: new Date().toISOString(),
 			userId,
@@ -216,8 +239,11 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 						// Removing by uri alone deletes every occurrence in the playlist.
 						await call(() => sp.removeTracksFromPlaylist(place.id, batch.map(t => t.uri)));
 					}
+					batch.forEach(t => onTrack({ type: "removed", uri: t.uri, place }));
 				} catch (err) {
-					errors.push({ place: place.name, placeId: place.id, uris: batch.map(t => t.uri), error: errorMessage(err) });
+					const error = errorMessage(err);
+					errors.push({ place: place.name, placeId: place.id, uris: batch.map(t => t.uri), error });
+					batch.forEach(t => onTrack({ type: "removeFailed", uri: t.uri, place, error }));
 				}
 			}
 			onProgress("playlists cleaned", ++done, total);

@@ -204,6 +204,42 @@ test("retries rate-limited requests", async () => {
 	assert.strictEqual(calls, 2);
 });
 
+test("reports per-track events while scanning and cleaning", async () => {
+	const [a, b, c] = [1, 2, 3].map(track);
+	const sp = fakeSpotify({
+		playlists: [
+			{ id: "x", name: "xList", owner: ME, items: [a, b, c, a] },
+			{ id: "p1", name: "Mine", owner: ME, items: [a, b] },
+			{ id: "p2", name: "Broken", owner: ME, items: [b] },
+		],
+		liked: ["t1"],
+		failRemove: { p2: 403 },
+	});
+	const events = [];
+	const c1 = createXListCleaner({ sp, userId: ME, sleep: async () => { }, fetchImpl: sp.fetch, onTrack: e => events.push(e) });
+	const plan = await c1.scan();
+
+	// xList tracks arrive (deduped) before any search result.
+	assert.strictEqual(events[0].type, "tracks");
+	assert.deepStrictEqual(events[0].tracks.map(t => t.uri), [a.uri, b.uri, c.uri]);
+	const of = (type, uri) => events.filter(e => e.type === type && e.uri === uri);
+	assert.deepStrictEqual(of("found", a.uri).map(e => e.place.id), ["p1", "liked"]);
+	assert.deepStrictEqual(of("found", b.uri).map(e => e.place.id).sort(), ["p1", "p2"]);
+	assert.strictEqual(of("found", c.uri).length, 0);
+	[a, b, c].forEach(t => assert.strictEqual(of("searched", t.uri).length, 1));
+	// Each track's searched event comes after all of its found events.
+	[a, b].forEach(t => assert.ok(
+		events.indexOf(of("searched", t.uri)[0]) > events.indexOf(of("found", t.uri).pop())));
+
+	events.length = 0;
+	await c1.execute(plan);
+	assert.deepStrictEqual(of("removed", a.uri).map(e => e.place.id).sort(), ["liked", "p1"]);
+	assert.deepStrictEqual(of("removed", b.uri).map(e => e.place.id), ["p1"]);
+	assert.deepStrictEqual(of("removeFailed", b.uri).map(e => [e.place.id, e.error]), [["p2", "HTTP 403"]]);
+	// The verify pass doesn't re-emit scan events.
+	assert.strictEqual(events.filter(e => e.type === "found" || e.type === "searched").length, 0);
+});
+
 test("planToCsv writes one row per track and location, escaping commas", () => {
 	const csv = planToCsv({
 		tracks: [

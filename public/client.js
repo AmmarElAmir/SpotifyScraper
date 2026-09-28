@@ -305,6 +305,7 @@ async function xListCleaner() {
 		userId,
 		schedule: fn => promiseThrottle.add(fn),
 		onProgress: move,
+		onTrack: onXListTrack,
 	});
 }
 
@@ -315,33 +316,127 @@ function setXListButtons(state) {
 	document.getElementById("cancelX").style.display = state === "confirm" ? "" : "none";
 }
 
-function xListItem(title, artist, detail) {
+function placeNames(places) {
+	return places.map(p => p.name).join(", ");
+}
+
+// One row per xList track, updated in place as the scan and cleanup report
+// progress. uri -> { li, icon, count, detail, found, removed, failed, ... }
+var XLIST_ROWS = new Map();
+
+function addXListRow(t) {
 	let li = document.createElement("li");
-	li.className = "trackItem";
-	[["strong", "trackName", title], ["p", "artistName", artist], ["span", "inPlaylist", detail]]
+	li.className = "trackItem xlistItem";
+	let status = document.createElement("span");
+	status.className = "trackStatus";
+	let icon = document.createElement("span");
+	let count = document.createElement("span");
+	count.className = "statusCount";
+	status.append(icon, count);
+	let row = { li, icon, count, detail: null, found: [], removed: [], failed: [] };
+	[["strong", "trackName", t.name], ["p", "artistName", t.artist], ["span", "xlistDetail", ""]]
 		.forEach(([tag, cls, text]) => {
 			let el = document.createElement(tag);
 			el.className = cls;
 			el.textContent = text;
 			li.append(el);
+			if (cls === "xlistDetail") row.detail = el;
 		});
-	return li;
+	li.append(status);
+	document.getElementById("tracksList").append(li);
+	XLIST_ROWS.set(t.uri, row);
+	setXListRow(row, "loading", "0", "Searching your playlists and Liked Songs...", "Occurrences found so far");
+	return row;
 }
 
-function placeNames(places) {
-	return places.map(p => p.name).join(", ");
+// state: "loading" | "done" | "error"
+function setXListRow(row, state, count, detail, tooltip) {
+	row.icon.className = "statusIcon " + state;
+	row.icon.textContent = state === "done" ? "\u2713" : state === "error" ? "!" : "";
+	row.count.textContent = count;
+	row.detail.textContent = detail;
+	row.li.title = tooltip || "";
+	row.li.dataset.state = state;
+}
+
+function renderScanRow(row, searched) {
+	let n = String(row.found.length);
+	if (!searched) {
+		setXListRow(row, "loading", n,
+			row.found.length ? "Searching... found in: " + placeNames(row.found) : "Searching your playlists and Liked Songs...",
+			"Occurrences found so far");
+	} else {
+		setXListRow(row, "done", n,
+			row.found.length ? "Found in: " + placeNames(row.found) : "Not found in any other playlist",
+			"Occurrences found");
+	}
+}
+
+function renderCleanRow(row) {
+	let total = row.total;
+	let done = row.removed.length;
+	let count = `${done}/${total}`;
+	if (row.failed.length) {
+		setXListRow(row, "error", count,
+			"Removal failed in: " + row.failed.map(f => `${f.place.name} (${f.error})`).join(", "),
+			"Removed / occurrences");
+	} else if (done < total) {
+		setXListRow(row, "loading", count, "Removing... done in: " + (placeNames(row.removed) || "none yet"),
+			"Removed / occurrences");
+	} else {
+		setXListRow(row, "done", count,
+			total ? "Removed from: " + placeNames(row.removed) : "Not in any other playlist",
+			"Removed / occurrences");
+	}
+}
+
+function onXListTrack(e) {
+	if (e.type === "tracks") {
+		e.tracks.forEach(addXListRow);
+		updateDisplay("tracksListTitle", `Scanning ${XLIST_ROWS.size} xList tracks...`);
+		return;
+	}
+	let row = XLIST_ROWS.get(e.uri);
+	if (!row) return;
+	switch (e.type) {
+		case "found":
+			row.found.push(e.place);
+			renderScanRow(row, false);
+			break;
+		case "searched":
+			renderScanRow(row, true);
+			break;
+		case "removed":
+			row.removed.push(e.place);
+			renderCleanRow(row);
+			break;
+		case "removeFailed":
+			row.failed.push(e);
+			renderCleanRow(row);
+			break;
+	}
+}
+
+// Any row still loading when a run stops gets an alert with the reason.
+function failPendingXListRows(message) {
+	XLIST_ROWS.forEach(row => {
+		if (row.li.dataset.state === "loading") setXListRow(row, "error", row.count.textContent, message);
+	});
 }
 
 // Step 1: scan (read-only), download the backup, and show what would go.
 async function previewXList() {
 	setXListButtons("busy");
 	updateDisplay("tracksList", "");
-	updateDisplay("tracksListTitle", "Scanning xList...");
+	XLIST_ROWS = new Map();
+	updateDisplay("tracksListTitle", "Loading xList...");
 	try {
 		XLIST_PLAN = await (await xListCleaner()).scan();
 	} catch (err) {
 		console.log(err);
-		updateDisplay("tracksListTitle", "xList scan failed: " + (err.message || err.status));
+		let message = err.message || err.status;
+		failPendingXListRows("Scan stopped: " + message);
+		updateDisplay("tracksListTitle", "xList scan failed: " + message);
 		setXListButtons("idle");
 		return;
 	}
@@ -350,12 +445,13 @@ async function previewXList() {
 	download(JSON.stringify(XLIST_PLAN, null, 2), `xlist-backup-${stamp}.json`, "application/json");
 	download(planToCsv(XLIST_PLAN), `xlist-backup-${stamp}.csv`, "text/csv");
 
-	let list = document.getElementById("tracksList");
 	let removals = 0;
 	XLIST_PLAN.tracks.forEach(t => {
 		removals += t.foundIn.length;
-		let where = t.foundIn.length ? "Found in: " + placeNames(t.foundIn) : "Not found in any other playlist";
-		list.append(xListItem(t.name, t.artist, where));
+		// Rows were built from events; resync with the final plan to be safe.
+		let row = XLIST_ROWS.get(t.uri) || addXListRow(t);
+		row.found = t.foundIn.slice();
+		renderScanRow(row, true);
 	});
 	updateDisplay("tracksListTitle",
 		`${XLIST_PLAN.tracks.length} xList tracks · ${removals} removals across ${XLIST_PLAN.targets.length} playlists + Liked Songs. Backup downloaded. Confirm to remove.`);
@@ -367,12 +463,21 @@ async function confirmXList() {
 	if (!XLIST_PLAN) return;
 	setXListButtons("busy");
 	updateDisplay("tracksListTitle", "Removing xList tracks...");
+	XLIST_PLAN.tracks.forEach(t => {
+		let row = XLIST_ROWS.get(t.uri) || addXListRow(t);
+		row.total = t.foundIn.length;
+		row.removed = [];
+		row.failed = [];
+		renderCleanRow(row);
+	});
 	let result;
 	try {
 		result = await (await xListCleaner()).execute(XLIST_PLAN);
 	} catch (err) {
 		console.log(err);
-		updateDisplay("tracksListTitle", "xList cleanup stopped: " + (err.message || err.status) + ". Nothing was removed from xList.");
+		let message = err.message || err.status;
+		failPendingXListRows("Cleanup stopped: " + message);
+		updateDisplay("tracksListTitle", "xList cleanup stopped: " + message + ". Nothing was removed from xList.");
 		setXListButtons("idle");
 		return;
 	}
@@ -380,25 +485,33 @@ async function confirmXList() {
 
 	download(JSON.stringify(result, null, 2), `xlist-result-${result.finishedAt.replace(/[:.]/g, "-")}.json`, "application/json");
 
-	let list = document.getElementById("tracksList");
-	list.innerHTML = "";
-	result.keptInXList.forEach(t =>
-		list.append(xListItem(t.name, t.artist, "Kept in xList, still in: " + placeNames(t.stillIn))));
-	result.cleanButStillInXList.forEach(t =>
-		list.append(xListItem(t.name, t.artist, "Removed everywhere, but removing from xList failed")));
-	result.removedFromXList.forEach(t =>
-		list.append(xListItem(t.name, t.artist, "Removed everywhere and from xList")));
+	// Final state per track, now that the verify pass and xList removal ran.
+	result.keptInXList.forEach(t => {
+		let row = XLIST_ROWS.get(t.uri);
+		if (!row) return;
+		let why = row.failed.length ? " · " + row.failed.map(f => `${f.place.name}: ${f.error}`).join(", ") : "";
+		setXListRow(row, "error", row.count.textContent, "Kept in xList, still in: " + placeNames(t.stillIn) + why);
+	});
+	result.cleanButStillInXList.forEach(t => {
+		let row = XLIST_ROWS.get(t.uri);
+		if (row) setXListRow(row, "error", row.count.textContent, "Removed everywhere, but removing from xList failed");
+	});
+	result.removedFromXList.forEach(t => {
+		let row = XLIST_ROWS.get(t.uri);
+		if (row) setXListRow(row, "done", row.count.textContent, "Removed everywhere and from xList", "Removed / occurrences");
+	});
 	result.errors.forEach(e => console.log("xList error", e));
 
 	let problems = result.keptInXList.length + result.cleanButStillInXList.length;
 	updateDisplay("tracksListTitle",
 		`${result.removedFromXList.length} tracks removed everywhere and from xList` +
-		(problems ? ` · ${problems} need attention (see list, console, and result file)` : " · all done"));
+		(problems ? ` · ${problems} need attention (marked with ! — see list, console, and result file)` : " · all done"));
 	setXListButtons("idle");
 }
 
 function cancelXList() {
 	XLIST_PLAN = null;
+	XLIST_ROWS = new Map();
 	updateDisplay("tracksList", "");
 	updateDisplay("tracksListTitle", "xList cleanup cancelled. Nothing was changed.");
 	setXListButtons("idle");
@@ -582,4 +695,4 @@ function move(label, count, total) {
 			}
 		}
 	}
-}
+}

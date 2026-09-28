@@ -371,3 +371,65 @@ input:checked + .slider:before {
 ::-webkit-scrollbar-thumb:hover {
   background: #1DB954; 
 }
+
+/* xList cleanup: per-track live status */
+.xlistItem {
+	padding-right: 96px !important;
+}
+
+.xlistDetail {
+	display: block;
+	margin: 0 5px;
+	color: rgb(131, 131, 131);
+	font-size: 13px;
+}
+
+.trackStatus {
+	position: absolute;
+	right: 15px;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-family: 'Fustat', Karla, Montserrat, sans-serif;
+	font-weight: 700;
+	font-size: 14px;
+	white-space: nowrap;
+}
+
+.statusIcon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	font-size: 12px;
+	line-height: 1;
+	color: #000000;
+}
+
+.statusIcon.loading {
+	border: 2px solid #535353;
+	border-top-color: var(--brand-green);
+	animation: statusSpin 0.8s linear infinite;
+}
+
+.statusIcon.done {
+	background: var(--brand-green);
+}
+
+.statusIcon.error {
+	background: #F59B23;
+	font-weight: 700;
+}
+
+.xlistItem[data-state="error"] .statusCount {
+	color: #F59B23;
+}
+
+@keyframes statusSpin {
+	to { transform: rotate(360deg); }
+}
