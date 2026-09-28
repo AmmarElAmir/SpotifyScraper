@@ -11,6 +11,7 @@ var userId = "";
 // // Using Promise Throttle to avoid rate limits when requesting tracks
 // // https://github.com/JMPerez/promise-throttle
 const PromiseThrottle = require('promise-throttle');
+const { createXListCleaner, planToCsv } = require('./xlist.js');
 const promiseThrottle = new PromiseThrottle({
 	requestsPerSecond: 5,           // up to 5 request per second
 	promiseImplementation: Promise  // the Promise library you are using
@@ -21,7 +22,7 @@ const promiseThrottle = new PromiseThrottle({
 //Global variables used to pass objects around
 var USER_PLAYLISTS = []
 var ALL_PLAYLISTS = []
-var CURR_TRACKS = []
+var XLIST_PLAN = null
 
 document.getElementById("searchTracks").addEventListener("click", search);
 document.getElementById("filterPlaylists").addEventListener("click", filterPlaylists);
@@ -44,9 +45,9 @@ function addEnter(element, button) {
 addEnter("filterInput", "filterPlaylists")
 addEnter("searchInput", "searchTracks")
 
-// document.getElementById("xList").addEventListener("click", xList);
-// document.getElementById("remX").addEventListener("click", removeXTracks);
-document.getElementById("remX").addEventListener("click", xList);
+document.getElementById("remX").addEventListener("click", previewXList);
+document.getElementById("confirmX").addEventListener("click", confirmXList);
+document.getElementById("cancelX").addEventListener("click", cancelXList);
 
 function getHashParams() {
 	// Copied from SP OAuth examples
@@ -286,94 +287,121 @@ async function requestPlaylistTracks(playlist, count = 0) {
 	return playlistTracks;
 }
 
-function download(text, filename) {
-	var a = document.createElement('a');
-	a.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-	a.setAttribute('download', filename);
-	a.click()
-
-	// Call it:
-	// var obj = {a: "Hello", b: "World"};
-	// saveText( JSON.stringify(obj), "filename.json" );
+function download(text, filename, type = "text/plain") {
+	let url = URL.createObjectURL(new Blob([text], { type: type + ";charset=utf-8" }));
+	let a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	document.body.append(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function parseTracks() {
-	console.log("PARSE")
-	var tracksList = document.getElementById("tracksList")
-	let tracks = []
-	console.log(tracksList)
-	for (let i = 0; i < tracksList.childNodes.length; i++) {
-		let c = tracksList.childNodes[i]
-		console.log(c)
-		let t = {}
-		t.name = c.innerText.split(",")[0]
-		t.id = c.id
-		t.playlistName = c.data - playlist - name
-		t.playlistId = c.data - playlist - id
-		tracks.push(t)
+async function xListCleaner() {
+	if (!userId) userId = (await sp.getMe()).id;
+	return createXListCleaner({
+		sp,
+		userId,
+		schedule: fn => promiseThrottle.add(fn),
+		onProgress: move,
+	});
+}
+
+function setXListButtons(state) {
+	// state: "idle" | "busy" | "confirm"
+	document.getElementById("remX").style.display = state === "idle" ? "" : "none";
+	document.getElementById("confirmX").style.display = state === "confirm" ? "" : "none";
+	document.getElementById("cancelX").style.display = state === "confirm" ? "" : "none";
+}
+
+function xListItem(title, artist, detail) {
+	let li = document.createElement("li");
+	li.className = "trackItem";
+	[["strong", "trackName", title], ["p", "artistName", artist], ["span", "inPlaylist", detail]]
+		.forEach(([tag, cls, text]) => {
+			let el = document.createElement(tag);
+			el.className = cls;
+			el.textContent = text;
+			li.append(el);
+		});
+	return li;
+}
+
+function placeNames(places) {
+	return places.map(p => p.name).join(", ");
+}
+
+// Step 1: scan (read-only), download the backup, and show what would go.
+async function previewXList() {
+	setXListButtons("busy");
+	updateDisplay("tracksList", "");
+	updateDisplay("tracksListTitle", "Scanning xList...");
+	try {
+		XLIST_PLAN = await (await xListCleaner()).scan();
+	} catch (err) {
+		console.log(err);
+		updateDisplay("tracksListTitle", "xList scan failed: " + (err.message || err.status));
+		setXListButtons("idle");
+		return;
 	}
 
-	return tracks;
+	let stamp = XLIST_PLAN.createdAt.replace(/[:.]/g, "-");
+	download(JSON.stringify(XLIST_PLAN, null, 2), `xlist-backup-${stamp}.json`, "application/json");
+	download(planToCsv(XLIST_PLAN), `xlist-backup-${stamp}.csv`, "text/csv");
+
+	let list = document.getElementById("tracksList");
+	let removals = 0;
+	XLIST_PLAN.tracks.forEach(t => {
+		removals += t.foundIn.length;
+		let where = t.foundIn.length ? "Found in: " + placeNames(t.foundIn) : "Not found in any other playlist";
+		list.append(xListItem(t.name, t.artist, where));
+	});
+	updateDisplay("tracksListTitle",
+		`${XLIST_PLAN.tracks.length} xList tracks · ${removals} removals across ${XLIST_PLAN.targets.length} playlists + Liked Songs. Backup downloaded. Confirm to remove.`);
+	setXListButtons(XLIST_PLAN.tracks.length ? "confirm" : "idle");
 }
 
-function getCurrentTracks() {
-	// if(CURR_TRACKS.length == 0){
-	// 	CURR_TRACKS = parseTracks();
-	// }
-	// if (CURR_TRACKS.length==0){
-	// 	console.log("No tracks found!")
-	// 	throw("No tracks found!")
-	// }
-	CURR_TRACKS = parseTracks();
-
-	return CURR_TRACKS;
-}
-async function xList() {
-	let tracks = getCurrentTracks()
-	findTracks(tracks, USER_PLAYLISTS)
-	removeXTracks()
-	document.getElementById("remX").style.display = "block";
-}
-
-function removeXTracks() {
-	//remove xTracks from all playlists
-	// then remove from xList
-	let tracks = []
-	if (CURR_TRACKS.length == 0) console.log("No Tracks Found")
-
-	let playlists = mapPlaylists(CURR_TRACKS);
-
-	trackIds = CURR_TRACKS.map(t => { return t.id })
-	trackUris = CURR_TRACKS.map(t => { return t.uri })
-
-	// sp.removeFromMySavedTracks(trackIds).then(res => console.log(res))
-
-	for (let id in playlists) {
-		// if(playlists[id].playlist.name.toUpperCase() == "XTHIS"){
-		// 	continue;
-		// }
-		let uris = playlists[id].tracks.map(t => { return t.uri })
-		console.log("REMOVING")
-		console.log(id, uris)
-		// sp.removeTracksFromPlaylist(id, uris).then(res => console.log(res))
+// Step 2: remove, verify, and only then remove verified tracks from xList.
+async function confirmXList() {
+	if (!XLIST_PLAN) return;
+	setXListButtons("busy");
+	updateDisplay("tracksListTitle", "Removing xList tracks...");
+	let result;
+	try {
+		result = await (await xListCleaner()).execute(XLIST_PLAN);
+	} catch (err) {
+		console.log(err);
+		updateDisplay("tracksListTitle", "xList cleanup stopped: " + (err.message || err.status) + ". Nothing was removed from xList.");
+		setXListButtons("idle");
+		return;
 	}
+	XLIST_PLAN = null;
 
-	// xList()
+	download(JSON.stringify(result, null, 2), `xlist-result-${result.finishedAt.replace(/[:.]/g, "-")}.json`, "application/json");
+
+	let list = document.getElementById("tracksList");
+	list.innerHTML = "";
+	result.keptInXList.forEach(t =>
+		list.append(xListItem(t.name, t.artist, "Kept in xList, still in: " + placeNames(t.stillIn))));
+	result.cleanButStillInXList.forEach(t =>
+		list.append(xListItem(t.name, t.artist, "Removed everywhere, but removing from xList failed")));
+	result.removedFromXList.forEach(t =>
+		list.append(xListItem(t.name, t.artist, "Removed everywhere and from xList")));
+	result.errors.forEach(e => console.log("xList error", e));
+
+	let problems = result.keptInXList.length + result.cleanButStillInXList.length;
+	updateDisplay("tracksListTitle",
+		`${result.removedFromXList.length} tracks removed everywhere and from xList` +
+		(problems ? ` · ${problems} need attention (see list, console, and result file)` : " · all done"));
+	setXListButtons("idle");
 }
 
-function mapPlaylists(tracks) {
-	let playlists = {}
-	tracks.forEach(t => {
-		if (!(t.playlist.id in playlists)) {
-			playlists[t.playlist.id] = {
-				"playlist": t.playlist,
-				"tracks": []
-			};
-		}
-		playlists[t.playlist.id].tracks.push(t)
-	})
-	console.log(playlists)
-	return playlists;
+function cancelXList() {
+	XLIST_PLAN = null;
+	updateDisplay("tracksList", "");
+	updateDisplay("tracksListTitle", "xList cleanup cancelled. Nothing was changed.");
+	setXListButtons("idle");
 }
 
 async function search() {
@@ -451,53 +479,6 @@ async function queryPlaylist(p, query) {
 		}
 	})
 	// return results;
-}
-
-function sameTrack(t1, t2) {
-	//Check the type of the track object 
-	//(PlaylistTrack vs Track)
-	if (t1.track == null || t2.track == null) { return false; }
-	if (t1.track.name) t1 = t1.track;
-	if (t2.track.name) t2 = t2.track;
-	return t1.id == t2.id;
-}
-
-function filterTracks(source, filter) {
-	let r = []
-	filter.forEach(fT => {
-		r = r.concat(
-			source.filter(function (sT) {
-				if (sameTrack(sT, fT)) {
-					fT.found = true
-					return true
-				} else {
-					return false
-				}
-			})
-		)
-	})
-	return r;
-}
-
-function findTracks(tracks, playlists) {
-	CURR_TRACKS = []
-	updateDisplay("tracksList", "");
-
-	let pCount = 0;
-	playlists.forEach(p => {
-		requestPlaylistTracks(p)
-			.then(pT => {
-				let r = filterTracks(pT, tracks)
-				rCount += r.length
-				updateDisplay("playlistLog", `${p.name} ${p.id} ${r.length}`)
-				r.forEach(t => {
-					t.playlist = p
-					displayAppend([t])
-					CURR_TRACKS.push(t)
-				})
-				move("playlists", ++pCount, playlists.length)
-			})
-	})
 }
 
 function updateDisplay(displayID, content) {

@@ -48,6 +48,22 @@ The app is set up to run as a single Vercel serverless function
 
 - Tokens are passed to the browser via the URL hash fragment (never sent
   to the server or logged), then kept in cookies client-side.
-- The `xList` / `removeXTracks` "remove tracks from playlists" feature is
-  unfinished — the actual Spotify API calls are commented out in
-  `public/client.js`, so it currently only logs what it would remove.
+- **Clean up xList**: removes every track in your playlist named `xList`
+  (the one you own) from all playlists you own, collaborative playlists
+  you're in, and Liked Songs. Followed playlists owned by others are
+  skipped, because Spotify doesn't allow editing them. It runs in two steps:
+  1. *Preview* (read-only) shows where each track was found and downloads a
+     backup (`xlist-backup-<time>.json` and `.csv`).
+  2. *Confirm removal* deletes the tracks, re-scans everything to verify,
+     and then removes from xList **only** the tracks confirmed at 0
+     occurrences everywhere else. Anything that failed stays in xList, and
+     a result file (`xlist-result-<time>.json`) lists what was done.
+
+  Tracks are matched by exact Spotify track ID/URI. Checking Liked Songs
+  needs the `user-library-read` permission, so if you logged in before this
+  feature was added, click **Clear Cookies** and log in again.
+
+## Tests
+
+`npm test` runs the xList cleanup logic (`public/xlist.js`) against an
+in-memory fake of the Spotify API.
