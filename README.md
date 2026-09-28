@@ -12,7 +12,7 @@ own.
 - `public/client.js` — browser-side code (bundled with `esbuild` into
   `public/bundle.js`) that talks to the Spotify Web API via
   `spotify-web-api-js`, throttled with `promise-throttle`.
-- `public/index.html` / `css/main.css` — the UI.
+- `public/index.html` / `public/main.css` — the UI.
 
 ## Local development
 
@@ -30,7 +30,7 @@ own.
 ## Deploying to Vercel
 
 The app is set up to run as a single Vercel serverless function
-(`server.js`), with `public/` and `css/` served alongside it.
+(`server.js`), with `public/` served alongside it.
 
 1. Push this repo to GitHub and import it in
    [Vercel](https://vercel.com/new).
