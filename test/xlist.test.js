@@ -40,16 +40,28 @@ function fakeSpotify({ playlists, liked = [], failRemove = {}, failLiked = false
 			if (ids.length > 50) throw httpError(400);
 			return ids.map(id => state.liked.has(id));
 		},
-		async removeFromMySavedTracks(ids) {
-			if (failLiked) throw httpError(500);
-			if (ids.length > 50) throw httpError(400);
+		getAccessToken() {
+			return "token";
+		},
+		// Liked Songs removal goes through fetch; like Spotify, only a
+		// DELETE /me/tracks with an `ids` query parameter is accepted.
+		async fetch(url, opts) {
+			const u = new URL(url);
+			const reply = (status, body = "") => ({ ok: status < 300, status, text: async () => body, headers: { get: () => null } });
+			if (u.pathname !== "/v1/me/tracks" || opts.method !== "DELETE") return reply(404);
+			if (opts.headers.Authorization !== "Bearer token") return reply(401);
+			const ids = (u.searchParams.get("ids") || "").split(",").filter(Boolean);
+			if (!ids.length) return reply(400, '{"error":{"status":400,"message":"Missing required field: ids"}}');
+			if (ids.length > 50) return reply(400);
+			if (failLiked) return reply(500);
 			ids.forEach(id => state.liked.delete(id));
+			return reply(200);
 		},
 	};
 }
 
 function cleaner(sp) {
-	return createXListCleaner({ sp, userId: ME, sleep: async () => { } });
+	return createXListCleaner({ sp, userId: ME, sleep: async () => { }, fetchImpl: sp.fetch });
 }
 
 function uris(p) {
