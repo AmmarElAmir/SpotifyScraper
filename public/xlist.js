@@ -45,7 +45,21 @@ function isLikedCandidate(track) {
  * schedule:  fn => Promise, used to rate-limit calls (e.g. promiseThrottle.add)
  * onProgress(label, done, total): optional progress callback
  */
-function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = defaultSleep, onProgress = () => { }, maxRetries = 4 }) {
+function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = defaultSleep, onProgress = () => { }, maxRetries = 4, fetchImpl = (...args) => fetch(...args) }) {
+
+	// spotify-web-api-js sends the ids as a bare JSON array body, which Spotify
+	// rejects with 400 "Missing required field: ids", so pass them as a query
+	// parameter instead. Errors mimic the library's (XHR-like) shape.
+	async function removeSavedTracks(ids) {
+		const res = await fetchImpl("https://api.spotify.com/v1/me/tracks?ids=" + ids.map(encodeURIComponent).join(","), {
+			method: "DELETE",
+			headers: { Authorization: "Bearer " + sp.getAccessToken() },
+		});
+		if (!res.ok) {
+			const responseText = await res.text();
+			throw { status: res.status, responseText, getResponseHeader: h => res.headers.get(h) };
+		}
+	}
 
 	// Rate-limited call that retries on 429 (honouring Retry-After) and 5xx.
 	async function call(fn) {
@@ -197,7 +211,7 @@ function createXListCleaner({ sp, userId, schedule = fn => fn(), sleep = default
 			for (const batch of batches) {
 				try {
 					if (isLiked) {
-						await call(() => sp.removeFromMySavedTracks(batch.map(t => t.id)));
+						await call(() => removeSavedTracks(batch.map(t => t.id)));
 					} else {
 						// Removing by uri alone deletes every occurrence in the playlist.
 						await call(() => sp.removeTracksFromPlaylist(place.id, batch.map(t => t.uri)));
