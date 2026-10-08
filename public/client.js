@@ -12,6 +12,7 @@ var userId = "";
 // // https://github.com/JMPerez/promise-throttle
 const PromiseThrottle = require('promise-throttle');
 const { createXListCleaner, planToCsv } = require('./xlist.js');
+const { parseTrackId, trackMatcher } = require('./trackquery.js');
 const promiseThrottle = new PromiseThrottle({
 	requestsPerSecond: 5,           // up to 5 request per second
 	promiseImplementation: Promise  // the Promise library you are using
@@ -518,7 +519,7 @@ function cancelXList() {
 }
 
 async function search() {
-	let query = document.getElementById("searchInput").value.toUpperCase();
+	let query = document.getElementById("searchInput").value.trim().toUpperCase();
 	updateDisplay("tracksList", "")
 	console.log("starting search for: " + query);
 
@@ -527,8 +528,25 @@ async function search() {
 	// they're just following the playlist it lives in.
 	let playlists = await getPlaylists(0)
 
+	// A pasted track link/URI/ID matches by track ID (plus same title +
+	// artist, for other releases of the song); anything else is a name search.
+	let matches = null;
+	const trackId = parseTrackId(document.getElementById("searchInput").value);
+	if (trackId) {
+		updateDisplay("tracksListTitle", "Looking up track...");
+		let ref = null;
+		try {
+			const tr = await promiseThrottle.add(sp.getTrack.bind(this, trackId));
+			ref = { name: tr.name, artist: tr.artists[0] && tr.artists[0].name };
+			updateDisplay("tracksListTitle", `Searching for "${tr.name}" by ${ref.artist}...`);
+		} catch (e) {
+			console.log("Could not look up track, matching by ID only", e);
+		}
+		matches = trackMatcher(trackId, ref);
+	}
+
 	// Search for tracks
-	incrementalSearch(query, playlists);
+	incrementalSearch(query, playlists, matches);
 }
 
 async function filterPlaylists(query, playlists) {
@@ -559,12 +577,12 @@ async function filterPlaylists(query, playlists) {
 
 //TODO change this to an incremental search 
 //.. Parse through each page of the playlistTracks then request the next page
-function incrementalSearch(query, playlists) {
+function incrementalSearch(query, playlists, matches) {
 
 	var pCount = 0;
 
 	playlists.forEach(p => {
-		queryPlaylist(p, query)
+		queryPlaylist(p, query, matches)
 			.then(r => {
 				move("playlists", ++pCount, playlists.length)
 			})
@@ -572,7 +590,7 @@ function incrementalSearch(query, playlists) {
 	})
 }
 
-async function queryPlaylist(p, query) {
+async function queryPlaylist(p, query, matches) {
 	let results = []
 	// let rCount = 0;
 
@@ -580,7 +598,7 @@ async function queryPlaylist(p, query) {
 	tracks.forEach(t => {
 		if (typeof t === "undefined") return;
 		name = t.name.toUpperCase();
-		if (name.indexOf(query) !== -1) {
+		if (matches ? matches(t) : name.indexOf(query) !== -1) {
 			console.log(`found ${name} in ${p.name}`)
 
 			let rCount = document.getElementById("tracksList")
